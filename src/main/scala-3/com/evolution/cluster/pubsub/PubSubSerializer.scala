@@ -1,11 +1,12 @@
 package com.evolution.cluster.pubsub
 
 import java.io.NotSerializableException
-
 import org.apache.pekko.serialization.SerializerWithStringManifest
 import com.evolution.serialization.SerializedMsg
-import scodec.bits.ByteVector
-import scodec.codecs._
+import scodec.*
+import scodec.Codec.*
+import scodec.bits.*
+import scodec.codecs.*
 
 class PubSubSerializer extends SerializerWithStringManifest {
   import PubSubSerializer._
@@ -39,11 +40,11 @@ class PubSubSerializer extends SerializerWithStringManifest {
 
 object PubSubSerializer {
 
-  private val codec = int32 ~ int64 ~ utf8_32 ~ variableSizeBytes(int32, bytes)
+  private val codec: Codec[(((Int, Long), String), ByteVector)] = ((int32 :: int64) :: utf8_32) :: variableSizeBytes(int32, bytes)
 
   private def msgFromBinary(bytes: ByteVector) = {
     val attempt                                    = codec.decode(bytes.bits)
-    val identifier ~ timestamp ~ manifest ~ bytes1 = attempt.require.value
+    val (((identifier, timestamp), manifest), bytes1) = attempt.require.value
     val bytes2                                     = bytes1
     val serializedMsg                              = SerializedMsg(identifier, manifest, bytes2)
     PubSubMsg(serializedMsg, timestamp)
@@ -51,7 +52,7 @@ object PubSubSerializer {
 
   private def msgToBinary(a: PubSubMsg) = {
     val b     = a.serializedMsg
-    val value = b.identifier ~ a.timestamp ~ b.manifest ~ b.bytes
+    val value: (((Int, Long), String), ByteVector) = (((b.identifier, a.timestamp), b.manifest), b.bytes)
     codec.encode(value).require
   }
 }
