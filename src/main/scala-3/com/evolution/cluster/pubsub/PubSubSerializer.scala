@@ -40,18 +40,19 @@ class PubSubSerializer extends SerializerWithStringManifest {
 
 object PubSubSerializer {
 
-  private val codec: Codec[(((Int, Long), String), ByteVector)] = ((int32 :: int64) :: utf8_32) :: variableSizeBytes(int32, bytes)
+  private val codec: Codec[(((Int, Long), String), ByteVector)] =
+    ((int32 :: int64) :: utf8_32) :: variableSizeBytes(int32, bytes)
 
   private def msgFromBinary(bytes: ByteVector) = {
-    val attempt                                    = codec.decode(bytes.bits)
+    val attempt                                       = codec.decode(bytes.bits)
     val (((identifier, timestamp), manifest), bytes1) = attempt.require.value
-    val bytes2                                     = bytes1
-    val serializedMsg                              = SerializedMsg(identifier, manifest, bytes2)
+    val bytes2                                        = bytes1
+    val serializedMsg                                 = SerializedMsg(identifier, manifest, bytes2)
     PubSubMsg(serializedMsg, timestamp)
   }
 
   private def msgToBinary(a: PubSubMsg) = {
-    val b     = a.serializedMsg
+    val b                                          = a.serializedMsg
     val value: (((Int, Long), String), ByteVector) = (((b.identifier, a.timestamp), b.manifest), b.bytes)
     codec.encode(value).require
   }

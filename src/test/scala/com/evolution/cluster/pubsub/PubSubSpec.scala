@@ -1,23 +1,22 @@
 package com.evolution.cluster.pubsub
 
-import org.apache.pekko.cluster.pubsub.{DistributedPubSubMediator => Mediator}
-import org.apache.pekko.testkit.TestProbe
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import com.evolution.serialization.ToBytesAble
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.LogOf
-
-import scala.concurrent.Await
+import org.apache.pekko.cluster.pubsub.{DistributedPubSubMediator => Mediator}
+import org.apache.pekko.testkit.TestProbe
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.collection.mutable
+import scala.concurrent.Await
 
 class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
 
   val topic = "topic"
-  val msg   = "msg"
+  val msg = "msg"
   type Msg = String
   implicit val MsgTopic: Topic[Msg] = Topic[Msg](topic)
 
@@ -27,9 +26,9 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
       group <- List(Some("group"), None)
     }
       s"subscribe, group: $group" in new Scope {
-        val msgs             = mutable.ArrayBuffer[String]()
+        val msgs = mutable.ArrayBuffer[String]()
         val (_, unsubscribe) = pubSub.subscribe[Msg](group)((msg: Msg, _) => IO(msgs.addOne(msg))).allocated.toTry.get
-        val subscriber       = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
+        val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
 
         subscriber ! ToBytesAble.Raw("msg1")(ToBytes.StrToBytes.apply)
         Thread.sleep(100)
@@ -61,9 +60,9 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
   }
 
   private trait Scope extends ActorScope {
-    val probe  = TestProbe()
-    def ref    = probe.ref
-    val log    = LogOf.slf4j[IO].unsafeRunSync().apply(getClass).unsafeRunSync()
+    val probe = TestProbe()
+    def ref = probe.ref
+    val log = LogOf.slf4j[IO].unsafeRunSync().apply(getClass).unsafeRunSync()
     val pubSub = PubSub[IO](testActor, log, system)
   }
 }

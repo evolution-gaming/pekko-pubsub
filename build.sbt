@@ -78,10 +78,8 @@ addCommandAlias("check", "all scalafmtCheckAll scalafmtSbtCheck")
 addCommandAlias("fmt", "all scalafmtAll scalafmtSbt")
 addCommandAlias("build", "+all compile test")
 
-def crossSettings[T](scalaVersion: String, if3: T, if2: T): T = {
+def crossSettings[T](scalaVersion: String, if3: T, if2: T): T =
   scalaVersion match {
     case version if version.startsWith("3") => if3
     case _ => if2
   }
-}
-

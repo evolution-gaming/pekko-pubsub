@@ -1,17 +1,19 @@
 package com.evolution.cluster.pubsub
 
+import PubSub.OnMsg
 import cats.Parallel
 import cats.data.{NonEmptyList => Nel}
 import cats.effect.{Concurrent, MonadCancelThrow, Resource}
 import cats.syntax.all._
+import com.evolution.scache.SerialMap
 import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.catshelper.Runtime
-import PubSub.OnMsg
-import com.evolution.scache.SerialMap
 
 trait OptimiseSubscribe[F[_]] {
 
-  def apply[A: Topic](onMsg: OnMsg[F, A])(
+  def apply[A: Topic](
+    onMsg: OnMsg[F, A],
+  )(
     subscribe: OnMsg[F, A] => Resource[F, Unit],
   ): Resource[F, Unit]
 }
@@ -20,7 +22,9 @@ object OptimiseSubscribe {
 
   def empty[F[_]]: OptimiseSubscribe[F] = new OptimiseSubscribe[F] {
 
-    def apply[A: Topic](onMsg: OnMsg[F, A])(
+    def apply[A: Topic](
+      onMsg: OnMsg[F, A],
+    )(
       subscribe: OnMsg[F, A] => Resource[F, Unit],
     ) =
       subscribe(onMsg)
@@ -37,7 +41,11 @@ object OptimiseSubscribe {
 
     new OptimiseSubscribe[F] {
 
-      def apply[A](onMsg: OnMsg[F, A])(subscribe: OnMsg[F, A] => Resource[F, Unit])(implicit
+      def apply[A](
+        onMsg: OnMsg[F, A],
+      )(
+        subscribe: OnMsg[F, A] => Resource[F, Unit],
+      )(implicit
         topic: Topic[A],
       ) = {
 
@@ -50,7 +58,7 @@ object OptimiseSubscribe {
           val onMsg: OnMsg[F, A] = (a: A, sender) =>
             for {
               subscription <- serialMap.get(topic.name)
-              _            <- subscription.foldMapM(_.listeners.parFoldMap1(listener => listener(a, sender)))
+              _ <- subscription.foldMapM(_.listeners.parFoldMap1(listener => listener(a, sender)))
             } yield {}
 
           for {
@@ -78,7 +86,7 @@ object OptimiseSubscribe {
               case Some(subscription) =>
                 subscription - listener match {
                   case Some(subscription) => subscription.some.pure[F]
-                  case None               => subscription.unsubscribe as none[Subscription[F]]
+                  case None => subscription.unsubscribe as none[Subscription[F]]
                 }
             }
           } yield {}

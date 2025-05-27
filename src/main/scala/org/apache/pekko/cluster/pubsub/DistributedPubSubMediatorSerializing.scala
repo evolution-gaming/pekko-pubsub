@@ -1,5 +1,8 @@
 package org.apache.pekko.cluster.pubsub
 
+import cats.Id
+import com.evolution.cluster.pubsub.{PubSub, PubSubMsg}
+import com.evolution.serialization.{SerializedMsg, SerializedMsgExt}
 import org.apache.pekko.Done
 import org.apache.pekko.actor.{
   Actor,
@@ -18,35 +21,34 @@ import org.apache.pekko.dispatch.Dispatchers
 import org.apache.pekko.routing.RoutingLogic
 import org.apache.pekko.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import org.apache.pekko.stream.{Materializer, OverflowStrategy, QueueOfferResult}
-import cats.Id
-import com.evolution.cluster.pubsub.{PubSub, PubSubMsg}
-import com.evolution.serialization.{SerializedMsg, SerializedMsgExt}
 
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
-/** Override to be able to serialize/deserialize msgs on PubSub level to offload pekko remoting transport. Serialization
-  * performed if there are remote subscribers, once per msg, disregarding the number of subscribers Deserialization
-  * performed on every remote node once per message, disregarding the number of subscribers as well.
-  */
+/**
+ * Override to be able to serialize/deserialize msgs on PubSub level to offload pekko remoting
+ * transport. Serialization performed if there are remote subscribers, once per msg, disregarding
+ * the number of subscribers Deserialization performed on every remote node once per message,
+ * disregarding the number of subscribers as well.
+ */
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
   serialize: String => Boolean,
   metrics: PubSub.Metrics[Id],
 ) extends DistributedPubSubMediator(settings)
-    with DistributedPubSubMediatorSerializing.StreamHelper {
+with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
   import context.dispatcher
 
-  private val selfAddress      = Cluster(context.system).selfAddress
+  private val selfAddress = Cluster(context.system).selfAddress
   private val serializedMsgExt = SerializedMsgExt(context.system)
 
   private lazy val queue = {
-    val strategy      = OverflowStrategy.backpressure
+    val strategy = OverflowStrategy.backpressure
     val maxSubstreams = Parallelism
-    val bufferSize    = Int.MaxValue
+    val bufferSize = Int.MaxValue
     Source
       .queue[SerializationTask](bufferSize, strategy)
       .groupBy(maxSubstreams, elem => math.abs(elem.topic.hashCode % maxSubstreams))
@@ -62,7 +64,7 @@ class DistributedPubSubMediatorSerializing(
       (address, bucket) <- registry
       if !(allButSelf && address == selfAddress) // if we should skip sender() node and current address == self address => skip
       valueHolder <- bucket.content.get(path)
-      ref         <- valueHolder.ref
+      ref <- valueHolder.ref
     } yield (ref, address)
 
     def forward(): Unit = refs foreach { case (ref, _) => ref forward msg }
@@ -88,21 +90,21 @@ class DistributedPubSubMediatorSerializing(
           result(pubSubMsg)
         } recover {
           case failure =>
-            log.error(failure, s"Failed to serialize ${msg.getClass.getName} at $topic, sending as is")
+            log.error(failure, s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is")
             result(msg)
         }
 
         val task = SerializationTask(topic, serialize)
-        queue.offerAndLog(task, s"Failed to enqueue ${msg.getClass.getName} at $topic")
+        queue.offerAndLog(task, s"Failed to enqueue ${ msg.getClass.getName } at $topic")
 
         refs foreach { case (ref, address) => if (address == selfAddress) ref forward msg }
       }
 
       msg match {
-        case _: PubSubMsg                  => forward()
-        case _: SerializedMsg              => forward()
+        case _: PubSubMsg => forward()
+        case _: SerializedMsg => forward()
         case x: AnyRef if serialize(topic) => serializeAndForward(x)
-        case _                             => forward()
+        case _ => forward()
       }
     } else {
       forward()
@@ -111,7 +113,7 @@ class DistributedPubSubMediatorSerializing(
 
   override def newTopicActor(encTopic: String): ActorRef = {
     val props = TopicSerializing.props(settings, metrics)
-    val ref   = context.actorOf(props, name = encTopic)
+    val ref = context.actorOf(props, name = encTopic)
     registerTopic(ref)
     ref
   }
@@ -162,8 +164,8 @@ object DistributedPubSubMediatorSerializing {
     routingLogic: RoutingLogic,
     metrics: PubSub.Metrics[Id],
   ) extends Topic(emptyTimeToLive, routingLogic)
-      with ActorLogging
-      with StreamHelper {
+  with ActorLogging
+  with StreamHelper {
 
     import context.dispatcher
 
@@ -192,7 +194,7 @@ object DistributedPubSubMediatorSerializing {
       val deserialize = Future {
         val length = serializedMsg.bytes.length.toLong
         metrics.fromBytes(topic, length)
-        val msg    = serializedMsgExt.fromMsg(serializedMsg).get
+        val msg = serializedMsgExt.fromMsg(serializedMsg).get
         val result = (msg, sender)
         Some(result)
       } recover {
@@ -221,12 +223,17 @@ object DistributedPubSubMediatorSerializing {
 
     implicit class SourceQueueWithCompleteOps[A](self: SourceQueueWithComplete[A]) {
 
-      def offerAndLog(elem: A, errorMsg: => String)(implicit ec: ExecutionContext): Unit =
+      def offerAndLog(
+        elem: A,
+        errorMsg: => String,
+      )(implicit
+        ec: ExecutionContext,
+      ): Unit =
         self.offer(elem) onComplete {
-          case Success(QueueOfferResult.Enqueued)         =>
+          case Success(QueueOfferResult.Enqueued) =>
           case Success(QueueOfferResult.Failure(failure)) => log.error(failure, errorMsg)
-          case Success(failure)                           => log.error(s"$errorMsg $failure")
-          case Failure(failure)                           => log.error(failure, s"$errorMsg $failure")
+          case Success(failure) => log.error(s"$errorMsg $failure")
+          case Failure(failure) => log.error(failure, s"$errorMsg $failure")
         }
     }
   }

@@ -1,13 +1,13 @@
 package com.evolution.cluster.pubsub
 
+import LocalPubSub._
 import org.apache.pekko.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import org.apache.pekko.testkit.{TestActorRef, TestProbe}
-import LocalPubSub._
 import org.scalatest.concurrent.Eventually
-
-import scala.concurrent.duration._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+
+import scala.concurrent.duration._
 
 class LocalPubSubSpec extends AnyFlatSpec with ActorSpec with Matchers with Eventually {
 
@@ -108,12 +108,12 @@ class LocalPubSubSpec extends AnyFlatSpec with ActorSpec with Matchers with Even
   }
 
   private trait Scope extends ActorScope {
-    val topic1      = "topic1"
-    val topic2      = "topic2"
-    val actor       = TestActorRef(LocalPubSub.props)
+    val topic1 = "topic1"
+    val topic2 = "topic2"
+    val actor = TestActorRef(LocalPubSub.props)
     lazy val probe1 = TestProbe()
     lazy val probe2 = TestProbe()
-    val msg         = "msg"
+    val msg = "msg"
 
     def state() = {
       actor ! GetState

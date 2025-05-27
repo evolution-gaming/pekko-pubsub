@@ -62,5 +62,5 @@ object LocalPubSub {
   }
 
   private[cluster] case object GetState
-  final private[cluster] case class State(value: Map[String, Set[ActorRef]])
+  private[cluster] final case class State(value: Map[String, Set[ActorRef]])
 }

@@ -1,10 +1,5 @@
 package com.evolution.cluster.pubsub
 
-import org.apache.pekko.actor.{Actor, ActorPath, ActorRef, ActorRefFactory, ActorSystem, Props}
-import org.apache.pekko.cluster.Cluster
-import org.apache.pekko.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPubSubMediator => Mediator}
-import org.apache.pekko.pattern._
-import org.apache.pekko.util.Timeout
 import cats.effect.{Resource, Sync}
 import cats.syntax.all._
 import cats.{Applicative, Id, Monad, ~>}
@@ -13,6 +8,11 @@ import com.evolution.serialization.ToBytesAble
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{FromFuture, Log, LogOf, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
+import org.apache.pekko.actor.{Actor, ActorPath, ActorRef, ActorRefFactory, ActorSystem, Props}
+import org.apache.pekko.cluster.Cluster
+import org.apache.pekko.cluster.pubsub.{DistributedPubSubMediator => Mediator, DistributedPubSubMediatorSerializing}
+import org.apache.pekko.pattern._
+import org.apache.pekko.util.Timeout
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -27,7 +27,9 @@ trait PubSub[F[_]] {
     sendToEachGroup: Boolean = false,
   ): F[Unit]
 
-  def subscribe[A: Topic: FromBytes: ClassTag](group: Option[String] = None)(
+  def subscribe[A: Topic: FromBytes: ClassTag](
+    group: Option[String] = None,
+  )(
     onMsg: OnMsg[F, A],
   ): Resource[F, Unit]
 
@@ -53,8 +55,9 @@ object PubSub {
     }
   }
 
-  /** Initializes a cluster-local pubsub. If cluster is not initialized, starts a node-local pubsub.
-    */
+  /**
+   * Initializes a cluster-local pubsub. If cluster is not initialized, starts a node-local pubsub.
+   */
   def of[F[_]: Sync: ToTry: ToFuture: FromFuture: LogOf](
     system: ActorSystem,
     metrics: Metrics[F],
@@ -78,14 +81,18 @@ object PubSub {
   }
 
   private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory)
-      extends PubSub[F] {
-    override def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)(implicit
+  extends PubSub[F] {
+    override def publish[A](
+      msg: A,
+      sender: Option[ActorRef] = None,
+      sendToEachGroup: Boolean = false,
+    )(implicit
       topic: Topic[A],
       toBytes: ToBytes[A],
     ): F[Unit] = {
 
       val toBytesAble = ToBytesAble(msg)(toBytes.apply)
-      val publish     = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
+      val publish = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
       for {
         _ <- log.debug(s"publish $publish")
         _ <- Sync[F].delay(pubSub.tell(publish, sender getOrElse ActorRef.noSender))
@@ -94,13 +101,19 @@ object PubSub {
 
     override def subscribe[A](
       group: Option[String] = None,
-    )(onMsg: OnMsg[F, A])(implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Resource[F, Unit] = {
+    )(
+      onMsg: OnMsg[F, A],
+    )(implicit
+      topic: Topic[A],
+      fromBytes: FromBytes[A],
+      tag: ClassTag[A],
+    ): Resource[F, Unit] = {
       val onToBytesAble: OnMsg[F, ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) =>
         msg match {
           case ToBytesAble.Bytes(bytes) =>
             Sync[F].delay(fromBytes(bytes)).flatMap(onMsg(_, sender))
           case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
-          case ToBytesAble.Raw(msg)      => log.warn(s"$topic: receive unexpected $msg")
+          case ToBytesAble.Raw(msg) => log.warn(s"$topic: receive unexpected $msg")
         }
       val logPrefixed = log.prefixed(topic.name)
       for {
@@ -129,18 +142,22 @@ object PubSub {
     }
   }
 
-  private class SubscriberActor(pubSub: ActorRef, group: Option[String], topic: String)(
+  private class SubscriberActor(
+    pubSub: ActorRef,
+    group: Option[String],
+    topic: String,
+  )(
     handler: (ToBytesAble, ActorRef) => Future[Unit],
   ) extends Actor {
     import context.dispatcher
     override def receive: Receive = waitOn(Future.unit)
-    private val log               = org.apache.pekko.event.Logging(context.system, this)
+    private val log = org.apache.pekko.event.Logging(context.system, this)
 
     private def waitOn(future: Future[Unit]): Receive = {
       case _: Mediator.SubscribeAck =>
-        log.debug(s"subscribed ${context.self}")
+        log.debug(s"subscribed ${ context.self }")
       case _: Mediator.UnsubscribeAck =>
-        log.debug(s"unsubscribed ${context.self}")
+        log.debug(s"unsubscribed ${ context.self }")
       case msg: ToBytesAble =>
         log.debug(s"receive $msg")
         val ref = sender()
@@ -186,8 +203,8 @@ object PubSub {
     sealed trait In[+A]
     object In {
       final case class Msg[+A](msg: A) extends In[A]
-      case object Subscribed           extends In[Nothing]
-      case object Unsubscribed         extends In[Nothing]
+      case object Subscribed extends In[Nothing]
+      case object Unsubscribed extends In[Nothing]
     }
   }
 
@@ -236,48 +253,48 @@ object PubSub {
       val latencyHistogram = Sync[F].delay(registry.histogram("latency"))
 
       for {
-        toBytesMeter     <- toBytesMeter
-        fromBytesMeter   <- fromBytesMeter
+        toBytesMeter <- toBytesMeter
+        fromBytesMeter <- fromBytesMeter
         latencyHistogram <- latencyHistogram
       } yield new Metrics[F] {
 
         def subscribe(topic: String) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(registry.counter(s"$name.subscriptions").inc())
+            _ <- Sync[F].delay(registry.counter(s"$name.subscriptions").inc())
           } yield {}
 
         def unsubscribe(topic: String) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(registry.counter(s"$name.subscriptions").dec())
+            _ <- Sync[F].delay(registry.counter(s"$name.subscriptions").dec())
           } yield {}
 
         def publish(topic: String) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(registry.meter(s"$name.publish").mark())
+            _ <- Sync[F].delay(registry.meter(s"$name.publish").mark())
           } yield {}
 
         def toBytes(topic: String, size: Long) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(toBytesMeter.mark(size))
-            _    <- Sync[F].delay(registry.meter(s"$name.toBytes").mark(size))
+            _ <- Sync[F].delay(toBytesMeter.mark(size))
+            _ <- Sync[F].delay(registry.meter(s"$name.toBytes").mark(size))
           } yield {}
 
         def fromBytes(topic: String, size: Long) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(fromBytesMeter.mark(size))
-            _    <- Sync[F].delay(registry.meter(s"$name.fromBytes").mark(size))
+            _ <- Sync[F].delay(fromBytesMeter.mark(size))
+            _ <- Sync[F].delay(registry.meter(s"$name.fromBytes").mark(size))
           } yield {}
 
         def latency(topic: String, latencyMs: Long) =
           for {
             name <- nameOf(topic)
-            _    <- Sync[F].delay(latencyHistogram.update(latencyMs))
-            _    <- Sync[F].delay(registry.histogram(s"$name.latency").update(latencyMs))
+            _ <- Sync[F].delay(latencyHistogram.update(latencyMs))
+            _ <- Sync[F].delay(registry.histogram(s"$name.latency").update(latencyMs))
           } yield {}
       }
     }
@@ -317,11 +334,19 @@ object PubSub {
         def topics(timeout: FiniteDuration) = self.topics(timeout)
       }
 
-    def withMetrics(metrics: Metrics[F])(implicit F: Monad[F]): PubSub[F] =
+    def withMetrics(
+      metrics: Metrics[F],
+    )(implicit
+      F: Monad[F],
+    ): PubSub[F] =
 
       new PubSub[F] {
 
-        def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)(implicit
+        def publish[A](
+          msg: A,
+          sender: Option[ActorRef] = None,
+          sendToEachGroup: Boolean = false,
+        )(implicit
           topic: Topic[A],
           toBytes: ToBytes[A],
         ) =
@@ -330,7 +355,11 @@ object PubSub {
             _ <- metrics.publish(topic.name)
           } yield a
 
-        def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])(implicit
+        def subscribe[A](
+          group: Option[String] = None,
+        )(
+          onMsg: OnMsg[F, A],
+        )(implicit
           topic: Topic[A],
           fromBytes: FromBytes[A],
           tag: ClassTag[A],
