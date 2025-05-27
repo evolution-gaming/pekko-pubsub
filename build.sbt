@@ -74,8 +74,8 @@ scalacOptions ++= crossSettings(
 Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings")
 
 //addCommandAlias("check", "all versionPolicyCheck scalafmtCheckAll scalafmtSbtCheck")
-addCommandAlias("check", "all scalafmtCheckAll scalafmtSbtCheck")
-addCommandAlias("fmt", "all scalafmtAll scalafmtSbt")
+addCommandAlias("check", "+all scalafmtCheckAll scalafmtSbtCheck")
+addCommandAlias("fmt", "+all scalafmtAll scalafmtSbt")
 addCommandAlias("build", "+all compile test")
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T): T =
